@@ -1,0 +1,49 @@
+app:
+  title: "本地监控视频异常事件分析系统"
+  host: "127.0.0.1"
+  port: 7860
+
+paths:
+  model_path: "models/yolov8n.pt"
+  uploads_dir: "data/uploads"
+  frames_dir: "data/frames"
+  clips_dir: "data/clips"
+  results_dir: "data/results"
+  eval_dir: "data/eval"
+
+model:
+  allow_auto_download: true
+  conf_threshold: 0.35
+  iou_threshold: 0.45
+  image_size: 640
+
+video:
+  sample_fps: 2.0
+  clip_padding_seconds: 3.0
+
+tracking:
+  iou_threshold: 0.3
+  max_missing_frames: 8
+
+events:
+  restricted_zone:
+    enabled: true
+    # Normalized polygon points: [x, y], 0-1 relative to frame width/height.
+    polygon:
+      - [0.62, 0.35]
+      - [0.98, 0.35]
+      - [0.98, 0.98]
+      - [0.62, 0.98]
+  loitering:
+    enabled: true
+    min_duration_seconds: 8.0
+    max_movement_ratio: 0.10
+
+llm:
+  enabled: true
+  provider: "ollama"
+  api_url: "http://127.0.0.1:11434/api/generate"
+  model_name: "qwen2.5:3b"
+  timeout_seconds: 20
+  allow_external_api: false
+  fallback_to_template: true

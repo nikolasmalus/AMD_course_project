@@ -1,0 +1,11 @@
+
+ultralytics
+opencv-python
+gradio
+numpy
+PyYAML
+requests
+moviepy
+imageio-ffmpeg
+psutil
+pytest
