@@ -3,7 +3,7 @@ ultralytics
 opencv-python
 gradio
 numpy
-PyYAML
+pyyaml
 requests
 moviepy
 imageio-ffmpeg

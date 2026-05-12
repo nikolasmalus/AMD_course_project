@@ -94,18 +94,79 @@ models/yolov8n.pt
 
 本地大语言模型是 Ollama 中的模型，默认使用 `qwen2.5:3b`。它不放在 `models/` 目录里，由 Ollama 管理。
 
-## 安装
+## 环境配置
 
-推荐 Python 3.10-3.12。
+推荐 Python 3.10-3.12。当前 WSL + NVIDIA 开发环境建议先单独安装 PyTorch CUDA 版，再安装项目其余依赖，避免普通 `pip install -r requirements.txt` 把 CUDA 版 PyTorch 覆盖成 CPU 版。
+
+进入项目目录：
 
 ```bash
-cd /home/malus/note_wsl/homework/project/security_video_analyzer_py
-python -m venv .venv
-source .venv/bin/activate
-pip install -r requirements.txt
+cd ~/note_wsl/homework/project/security_video_analyzer_py
 ```
 
-如果是 NVIDIA WSL 开发环境，请确保安装的是匹配驱动的 CUDA 版 PyTorch。项目业务代码不依赖 `nvidia-smi`、`CUDA_HOME` 或自定义 CUDA kernel。
+重建虚拟环境：
+
+```bash
+deactivate 2>/dev/null
+rm -rf .venv
+
+python3 -m venv .venv
+source .venv/bin/activate
+
+python -m pip install --upgrade pip setuptools wheel
+```
+
+先安装 PyTorch CUDA 版。WSL + NVIDIA 推荐使用 CUDA 12.1 wheel：
+
+```bash
+python -m pip install torch torchvision --index-url https://download.pytorch.org/whl/cu121 --default-timeout=1000
+```
+
+安装后检查 GPU 是否可用：
+
+```bash
+python -c "import torch; print(torch.__version__); print(torch.cuda.is_available()); print(torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'CPU')"
+```
+
+如果这里能输出 `True` 和你的 NVIDIA 显卡名，说明 PyTorch CUDA 环境已经装对。
+
+`requirements.txt` 不应再包含 `torch` 或 `torchvision`，避免后续安装依赖时覆盖 CUDA 版 PyTorch。当前依赖文件应保持为：
+
+```text
+ultralytics
+opencv-python
+gradio
+numpy
+pyyaml
+requests
+moviepy
+imageio-ffmpeg
+psutil
+pytest
+```
+
+接着安装剩余依赖。为了避免 `ultralytics` 再触发 PyTorch 依赖升级，建议先加 `--no-deps` 单独安装它，然后安装其他包：
+
+```bash
+python -m pip install ultralytics --no-deps
+python -m pip install opencv-python gradio numpy pyyaml requests moviepy imageio-ffmpeg psutil pytest matplotlib pillow scipy pandas tqdm pydantic fastapi uvicorn --default-timeout=1000
+python -m pip install polars ultralytics-thop --default-timeout=1000
+```
+
+最后检查项目关键依赖：
+
+```bash
+python -c "import torch, gradio, ultralytics, cv2; print('env ok'); print(torch.cuda.is_available())"
+```
+
+如果输出：
+
+```text
+env ok
+True
+```
+
+说明环境配置完成。项目业务代码不依赖 `nvidia-smi`、`CUDA_HOME` 或自定义 CUDA kernel。
 
 ## 准备 YOLO 模型
 
@@ -342,7 +403,7 @@ cd security_video_analyzer_py
 python -m venv .venv
 source .venv/bin/activate
 # 先按 AMD/ROCm 对应版本安装 ROCm 版 PyTorch
-pip install -r requirements.txt
+# 再参考“环境配置”部分安装除 torch/torchvision 外的其余依赖
 python scripts/check_env.py
 ```
 
@@ -363,11 +424,7 @@ python scripts/check_env.py
 pytest
 ```
 
-没有安装 `pytest` 时，可以先安装依赖：
-
-```bash
-pip install -r requirements.txt
-```
+没有安装 `pytest` 时，请先按“环境配置”部分完成虚拟环境和项目依赖安装。
 
 ## 最终演示前检查清单
 
