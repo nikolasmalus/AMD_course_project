@@ -9,6 +9,8 @@ import gradio as gr
 from src.config import load_config
 from src.hardware_manager import CPU_FALLBACK_MESSAGE
 from src.pipeline import analyze_video
+from src.video_io import read_first_frame
+from src.zone_optimizer import draw_zone_overlay, optimize_polygon, pixel_to_normalized, sanitize_normalized_polygon
 
 
 CONFIG = load_config()
@@ -35,8 +37,13 @@ KEY_LABELS = {
     "video_info": "视频基本信息",
     "hardware_info": "硬件信息",
     "model_error": "模型提示",
+    "model_profile": "模型模式",
+    "model_label": "模型名称",
+    "model_path": "模型路径",
     "sample_count": "抽样帧数",
     "track_count": "轨迹数量",
+    "restricted_polygon": "警戒区域坐标",
+    "annotated_video_path": "标注视频路径",
     "events": "异常事件",
     "risk_level": "风险等级",
     "alert_text": "告警文本",
@@ -84,6 +91,19 @@ KEY_LABELS = {
     "clip_start": "片段开始（秒）",
     "clip_end": "片段结束（秒）",
 }
+
+
+def _video_path_from_input(video_path: Any) -> str | None:
+    if isinstance(video_path, dict):
+        video_path = video_path.get("video") or video_path.get("path") or video_path.get("name")
+    return str(video_path) if video_path else None
+
+
+MODEL_PROFILE_LABELS = {
+    profile_name: profile.get("label", profile_name)
+    for profile_name, profile in CONFIG["model"].get("profiles", {}).items()
+}
+MODEL_LABEL_TO_PROFILE = {label: name for name, label in MODEL_PROFILE_LABELS.items()}
 
 VALUE_LABELS = {
     "high": "高",
@@ -172,17 +192,80 @@ def _localized_report(data: Any) -> Any:
     return _format_value(data)
 
 
-def run_ui(video_path: str, sample_fps: float, conf_threshold: float, loitering_min_duration: float, loitering_max_movement: float):
-    if isinstance(video_path, dict):
-        video_path = video_path.get("video") or video_path.get("path") or video_path.get("name")
+def _zone_status(points: list[list[float]], message: str = "") -> str:
+    polygon = sanitize_normalized_polygon(points)
+    prefix = f"{message}\n\n" if message else ""
+    if len(polygon) < 3:
+        return prefix + f"已选择 {len(polygon)} 个点，至少需要 3 个点形成警戒区域。"
+    return prefix + f"已选择 {len(polygon)} 个点，警戒区域已就绪。"
+
+
+def load_zone_preview(video_path: Any):
+    path = _video_path_from_input(video_path)
+    if not path:
+        return None, None, [], "请先上传 MP4 视频。"
+    frame = read_first_frame(path)
+    return frame, draw_zone_overlay(frame, []), [], _zone_status([], "已加载视频首帧。")
+
+
+def add_zone_point(base_frame, points: list[list[float]] | None, evt: gr.SelectData):
+    if base_frame is None:
+        raise gr.Error("请先上传视频并加载首帧。")
+    height, width = base_frame.shape[:2]
+    index = evt.index
+    if not isinstance(index, (tuple, list)) or len(index) < 2:
+        raise gr.Error("没有获取到有效点击位置。")
+    x, y = int(index[0]), int(index[1])
+    polygon = sanitize_normalized_polygon(points)
+    polygon.append(pixel_to_normalized((x, y), width, height))
+    return draw_zone_overlay(base_frame, polygon), polygon, _zone_status(polygon)
+
+
+def undo_zone_point(base_frame, points: list[list[float]] | None):
+    polygon = sanitize_normalized_polygon(points)
+    if polygon:
+        polygon = polygon[:-1]
+    return draw_zone_overlay(base_frame, polygon), polygon, _zone_status(polygon, "已撤销上一个点。")
+
+
+def clear_zone_points(base_frame):
+    return draw_zone_overlay(base_frame, []), [], _zone_status([], "已清空警戒区域。")
+
+
+def optimize_zone_points(base_frame, points: list[list[float]] | None):
+    if base_frame is None:
+        raise gr.Error("请先上传视频并加载首帧。")
+    polygon = sanitize_normalized_polygon(points)
+    if len(polygon) < 3:
+        raise gr.Error("请至少选择 3 个点后再优化区域。")
+    height, width = base_frame.shape[:2]
+    optimized = optimize_polygon(polygon, width, height)
+    return draw_zone_overlay(base_frame, optimized, optimized=True), optimized, _zone_status(optimized, "已完成区域优化。")
+
+
+def run_ui(
+    video_path: str,
+    sample_fps: float,
+    conf_threshold: float,
+    loitering_min_duration: float,
+    loitering_max_movement: float,
+    model_profile_label: str,
+    zone_points: list[list[float]] | None,
+):
+    video_path = _video_path_from_input(video_path)
     if not video_path:
         raise gr.Error("请先上传 MP4 视频。")
+    restricted_polygon = sanitize_normalized_polygon(zone_points)
+    if len(restricted_polygon) < 3:
+        raise gr.Error("请先在首帧图像上点选至少 3 个警戒区域点。")
     result = analyze_video(
         video_path,
         sample_fps=sample_fps,
         conf_threshold=conf_threshold,
         loitering_min_duration=loitering_min_duration,
         loitering_max_movement=loitering_max_movement,
+        restricted_polygon=restricted_polygon,
+        model_profile=MODEL_LABEL_TO_PROFILE.get(model_profile_label, CONFIG["model"].get("default_profile", "fast")),
     )
     events = result.get("events", [])
     hardware = result.get("hardware_info", {})
@@ -198,7 +281,7 @@ def run_ui(video_path: str, sample_fps: float, conf_threshold: float, loitering_
     result_json = json.dumps(_localized_report(result.get("result", {})), ensure_ascii=False, indent=2)
 
     return (
-        result["video_path"],
+        result.get("annotated_video_path") or result["video_path"],
         _markdown_dict("视频基本信息", result.get("video_info", {})),
         _markdown_dict("硬件信息", hardware)
         + "\n\n### 本地大模型\n"
@@ -219,16 +302,29 @@ def run_ui(video_path: str, sample_fps: float, conf_threshold: float, loitering_
 
 with gr.Blocks(title=CONFIG["app"]["title"]) as demo:
     gr.Markdown(f"# {CONFIG['app']['title']}")
+    zone_base_frame = gr.State(None)
+    zone_points = gr.State([])
     with gr.Row():
         with gr.Column(scale=1):
             video_input = gr.Video(label="上传本地 MP4", sources=["upload"])
+            zone_preview = gr.Image(label="首帧警戒区域", type="numpy", interactive=False, height=360)
+            with gr.Row():
+                undo_zone = gr.Button("撤销点")
+                clear_zone = gr.Button("清空区域")
+                optimize_zone = gr.Button("优化区域")
+            zone_status = gr.Markdown("上传视频后，可在首帧图像上点选警戒区域。")
+            model_profile = gr.Dropdown(
+                choices=list(MODEL_LABEL_TO_PROFILE.keys()),
+                value=MODEL_PROFILE_LABELS.get(CONFIG["model"].get("default_profile", "fast"), "快速模式 YOLOv8n"),
+                label="模型模式",
+            )
             sample_fps = gr.Slider(0.5, 10.0, value=float(CONFIG["video"]["sample_fps"]), step=0.5, label="抽帧帧率")
             conf_threshold = gr.Slider(0.1, 0.9, value=float(CONFIG["model"]["conf_threshold"]), step=0.05, label="检测置信度阈值")
             loitering_min_duration = gr.Slider(1.0, 60.0, value=float(CONFIG["events"]["loitering"]["min_duration_seconds"]), step=1.0, label="徘徊最短持续时间（秒）")
             loitering_max_movement = gr.Slider(0.01, 0.5, value=float(CONFIG["events"]["loitering"]["max_movement_ratio"]), step=0.01, label="徘徊最大移动比例")
             run_button = gr.Button("开始分析", variant="primary")
         with gr.Column(scale=2):
-            original_video = gr.Video(label="原始视频")
+            original_video = gr.Video(label="分析视频")
             video_info = gr.Markdown()
             hardware_info = gr.Markdown()
     events_table = gr.Dataframe(headers=["事件编号", "事件类型", "风险等级", "轨迹编号", "开始秒", "结束秒", "持续时长（秒）", "告警文本", "是否使用 LLM"], label="异常事件详情")
@@ -242,9 +338,14 @@ with gr.Blocks(title=CONFIG["app"]["title"]) as demo:
     result_file = gr.File(label="报告文件")
     result_json = gr.Code(label="报告内容", language="json")
 
+    video_input.change(load_zone_preview, inputs=[video_input], outputs=[zone_base_frame, zone_preview, zone_points, zone_status])
+    zone_preview.select(add_zone_point, inputs=[zone_base_frame, zone_points], outputs=[zone_preview, zone_points, zone_status])
+    undo_zone.click(undo_zone_point, inputs=[zone_base_frame, zone_points], outputs=[zone_preview, zone_points, zone_status])
+    clear_zone.click(clear_zone_points, inputs=[zone_base_frame], outputs=[zone_preview, zone_points, zone_status])
+    optimize_zone.click(optimize_zone_points, inputs=[zone_base_frame, zone_points], outputs=[zone_preview, zone_points, zone_status])
     run_button.click(
         run_ui,
-        inputs=[video_input, sample_fps, conf_threshold, loitering_min_duration, loitering_max_movement],
+        inputs=[video_input, sample_fps, conf_threshold, loitering_min_duration, loitering_max_movement, model_profile, zone_points],
         outputs=[original_video, video_info, hardware_info, events_table, risk, alert, clips, thumbnails, benchmark, result_file, result_json],
     )
 

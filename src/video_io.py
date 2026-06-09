@@ -6,6 +6,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 import cv2
+import numpy as np
 
 
 @dataclass
@@ -58,3 +59,15 @@ def read_video_info(video_path: str | Path) -> VideoInfo:
         frame_count=frame_count,
         duration_seconds=round(duration, 3),
     )
+
+
+def read_first_frame(video_path: str | Path) -> np.ndarray:
+    path = Path(video_path)
+    cap = cv2.VideoCapture(str(path))
+    if not cap.isOpened():
+        raise ValueError(f"Unable to open video: {path}")
+    ok, frame = cap.read()
+    cap.release()
+    if not ok or frame is None:
+        raise ValueError(f"Unable to read first frame: {path}")
+    return cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)

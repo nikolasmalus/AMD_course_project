@@ -1,6 +1,14 @@
 # 本地监控视频异常事件分析系统
 
-`security_video_analyzer_py` 是一个本地端到端安防视频分析项目。用户上传 MP4 后，系统会读取视频信息、抽帧、调用本地 YOLOv8n 检测人员、基于 IoU 生成轨迹、识别禁区闯入和长时间徘徊，自动截取异常片段和缩略图，并通过本地 Ollama 或模板生成中文告警说明。Gradio 页面会展示原始视频、硬件信息、事件表格、风险等级、告警文本、异常片段、缩略图、性能对比和报告文件。
+## 今日更新摘要
+
+- 新增交互式警戒区域：上传视频后显示首帧，用户可点选多边形区域，并可撤销、清空、自动规整优化。
+- 新增分析视频可视化：输出视频会叠加警戒区域，普通人员显示绿框，进入警戒区域后显示红框和 `ALERT ID`。
+- 新增多模型模式：支持 `YOLOv8n` 快速模式、`YOLOv8s` 精准模式、`YOLO11m` 增强模式，适配夜间、小目标等困难监控画面。
+- 完善端侧运行记录：报告中记录本次警戒区域、标注视频路径、模型档位、模型路径和硬件加速信息。
+- 保持 AMD 迁移友好：业务代码继续使用 PyTorch 统一设备接口，当前 NVIDIA CUDA 可运行，迁移到 AMD ROCm 后重建 PyTorch 环境即可。
+
+`security_video_analyzer_py` 是一个本地端到端安防视频分析项目。用户上传 MP4 后，系统会读取视频信息、抽帧、调用当前选择的 YOLO 模型检测人员、基于 IoU 生成轨迹、识别禁区闯入和长时间徘徊，自动截取异常片段和缩略图，并通过本地 Ollama 或模板生成中文告警说明。Gradio 页面会展示分析视频、硬件信息、事件表格、风险等级、告警文本、异常片段、缩略图、性能对比和报告文件。
 
 ## 当前完成状态
 
@@ -33,7 +41,9 @@ security_video_analyzer_py/
 ├── requirements.txt
 ├── README.md
 ├── models/
-│   └── yolov8n.pt
+│   ├── yolov8n.pt
+│   ├── yolov8s.pt
+│   └── yolo11m.pt
 ├── data/
 │   ├── uploads/
 │   ├── frames/
@@ -71,7 +81,7 @@ security_video_analyzer_py/
 1. `video_io.py` 保存上传 MP4，并读取分辨率、帧率、帧数和时长。
 2. `frame_sampler.py` 按 `sample_fps` 抽帧，保存到 `data/frames/`。
 3. `hardware_manager.py` 用 `torch.cuda.is_available()` 选择设备；可用则使用 `device="cuda"`，否则使用 CPU fallback。
-4. `yolo_person_detector.py` 加载 `models/yolov8n.pt`，只检测 COCO person 类，即 `classes=[0]`。
+4. `yolo_person_detector.py` 加载当前选择的 YOLOv8 模型，只检测 COCO person 类，即 `classes=[0]`。
 5. `simple_tracker.py` 用 IoU 为检测框分配 `track_id`，形成简单人员轨迹。
 6. `event_detector.py` 基于轨迹中心点判断禁区闯入，基于持续时间和移动半径判断长时间徘徊。
 7. `clip_extractor.py` 截取异常片段，生成缩略图，并调用 `media_compat.py` 转成浏览器友好的 H.264 MP4。
@@ -85,12 +95,20 @@ security_video_analyzer_py/
 
 ```text
 models/yolov8n.pt
+models/yolov8s.pt
+models/yolo11m.pt
 ```
 
-提示词中的“原始模型 vs 本地优化模型”在本项目中实现为同一个 YOLOv8n 权重的两种推理方式：
+网页端提供三种人员检测模式：
 
-- `baseline_fp32`：YOLOv8n FP32 推理，`half=False`
-- `optimized_fp16`：YOLOv8n FP16 GPU 推理，`half=True`，仅在 `device="cuda"` 时启用
+- `快速模式 YOLOv8n`：速度快、资源占用低，适合快速预览。
+- `精准模式 YOLOv8s`：模型更大，对夜间、小目标和低清视频更稳，适合正式分析。
+- `增强模式 YOLO11m`：模型更强，适合困难监控画面和赛题演示，但速度和显存占用更高。
+
+性能对比在当前选择的 YOLOv8 权重上运行两种推理方式：
+
+- `baseline_fp32`：FP32 推理，`half=False`
+- `optimized_fp16`：FP16 GPU 推理，`half=True`，仅在 `device="cuda"` 时启用
 
 本地大语言模型是 Ollama 中的模型，默认使用 `qwen2.5:3b`。它不放在 `models/` 目录里，由 Ollama 管理。
 
@@ -256,6 +274,8 @@ http://127.0.0.1:7860
 
 ```bash
 python scripts/run_demo.py /path/to/your_monitor_video.mp4 --sample-fps 2 --conf 0.25
+python scripts/run_demo.py /path/to/your_monitor_video.mp4 --sample-fps 5 --conf 0.2 --model-profile accurate
+python scripts/run_demo.py /path/to/your_monitor_video.mp4 --sample-fps 5 --conf 0.2 --model-profile enhanced
 ```
 
 输出目录：

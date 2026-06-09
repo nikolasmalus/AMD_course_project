@@ -15,6 +15,7 @@ from .hardware_manager import detect_hardware
 from .simple_tracker import track_frame_results
 from .video_io import read_video_info, save_uploaded_video
 from .video_security_agent import FunctionTool, VideoSecurityAgent
+from .visualizer import render_annotated_video
 from .yolo_person_detector import ModelUnavailableError, YoloPersonDetector
 
 
@@ -29,6 +30,21 @@ def _write_json(path: str | Path, data: dict[str, Any]) -> str:
     target.parent.mkdir(parents=True, exist_ok=True)
     target.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
     return str(target)
+
+
+def _model_profile(config: dict[str, Any], profile_name: str | None) -> tuple[str, dict[str, Any]]:
+    profiles = config["model"].get("profiles", {})
+    default_name = config["model"].get("default_profile", "fast")
+    name = profile_name if profile_name in profiles else default_name
+    profile = profiles.get(name, {})
+    if not profile:
+        profile = {"label": name, "model_path": config["paths"]["model_path"]}
+    return str(name), profile
+
+
+def _context_model_path(config: dict[str, Any], context: dict[str, Any]) -> Path:
+    _, profile = _model_profile(config, context.get("model_profile"))
+    return resolve_path(config, profile.get("model_path", config["paths"]["model_path"]))
 
 
 def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
@@ -58,7 +74,11 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
         context["samples"] = samples
 
         hardware = context["hardware_info"]
-        model_path = resolve_path(config, config["paths"]["model_path"])
+        model_profile, profile = _model_profile(config, context.get("model_profile"))
+        model_path = _context_model_path(config, context)
+        context["model_profile"] = model_profile
+        context["model_label"] = profile.get("label", model_profile)
+        context["model_path"] = str(model_path)
         try:
             detector = YoloPersonDetector(
                 model_path=model_path,
@@ -93,15 +113,17 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
         video_info = context["video_info"]
         restricted = config["events"]["restricted_zone"]
         loitering = config["events"]["loitering"]
+        restricted_polygon = context.get("restricted_polygon") or restricted.get("polygon", [])
         detector = EventDetector(
             frame_width=int(video_info["width"]),
             frame_height=int(video_info["height"]),
-            restricted_polygon=restricted.get("polygon", []),
+            restricted_polygon=restricted_polygon,
             restricted_enabled=bool(restricted.get("enabled", True)),
             loitering_enabled=bool(loitering.get("enabled", True)),
             loitering_min_duration=float(context.get("loitering_min_duration", loitering["min_duration_seconds"])),
             loitering_max_movement_ratio=float(context.get("loitering_max_movement", loitering["max_movement_ratio"])),
         )
+        context["restricted_polygon"] = restricted_polygon
         context["events"] = detector.detect(context.get("tracks", []))
         return context
 
@@ -111,6 +133,16 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
             context.get("events", []),
             context["clips_dir"],
             padding_seconds=float(config["video"]["clip_padding_seconds"]),
+        )
+        return context
+
+    def render_annotated_video_tool(context: dict[str, Any]) -> dict[str, Any]:
+        annotated_path = Path(context["results_dir"]) / "annotated_video.mp4"
+        context["annotated_video_path"] = render_annotated_video(
+            video_path=context["video_path"],
+            tracked_frames=context.get("tracked_frames", []),
+            restricted_polygon=context.get("restricted_polygon"),
+            output_path=annotated_path,
         )
         return context
 
@@ -128,7 +160,7 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
     def generate_report_tool(context: dict[str, Any]) -> dict[str, Any]:
         benchmark = run_benchmark(
             samples=context.get("samples", []),
-            model_path=resolve_path(config, config["paths"]["model_path"]),
+            model_path=_context_model_path(config, context),
             device=context["hardware_info"]["actual_device"],
             allow_auto_download=bool(config["model"].get("allow_auto_download", False)),
             conf_threshold=float(context.get("conf_threshold", config["model"]["conf_threshold"])),
@@ -141,8 +173,13 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
             "video_info": context.get("video_info"),
             "hardware_info": context.get("hardware_info"),
             "model_error": context.get("model_error"),
+            "model_profile": context.get("model_profile"),
+            "model_label": context.get("model_label"),
+            "model_path": context.get("model_path"),
             "sample_count": len(context.get("samples", [])),
             "track_count": len(context.get("tracks", [])),
+            "restricted_polygon": context.get("restricted_polygon"),
+            "annotated_video_path": context.get("annotated_video_path"),
             "events": context.get("events", []),
             "risk_level": context.get("risk_level"),
             "alert_text": context.get("alert_text"),
@@ -166,6 +203,7 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
             FunctionTool("TrackPersonsTool", track_persons_tool),
             FunctionTool("DetectEventsTool", detect_events_tool),
             FunctionTool("GenerateClipsTool", generate_clips_tool),
+            FunctionTool("RenderAnnotatedVideoTool", render_annotated_video_tool),
             FunctionTool("GenerateAlertTool", generate_alert_tool),
             FunctionTool("GenerateReportTool", generate_report_tool),
         ]
@@ -179,6 +217,8 @@ def analyze_video(
     conf_threshold: float | None = None,
     loitering_min_duration: float | None = None,
     loitering_max_movement: float | None = None,
+    restricted_polygon: list[list[float]] | None = None,
+    model_profile: str | None = None,
 ) -> dict[str, Any]:
     config = load_config(config_path)
     context: dict[str, Any] = {"video_path": str(video_path)}
@@ -190,4 +230,8 @@ def analyze_video(
         context["loitering_min_duration"] = loitering_min_duration
     if loitering_max_movement is not None:
         context["loitering_max_movement"] = loitering_max_movement
+    if restricted_polygon:
+        context["restricted_polygon"] = restricted_polygon
+    if model_profile:
+        context["model_profile"] = model_profile
     return build_agent(config).run(context)
