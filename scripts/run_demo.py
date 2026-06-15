@@ -16,7 +16,7 @@ def main() -> None:
     parser.add_argument("video", help="Path to local MP4 video")
     parser.add_argument("--sample-fps", type=float, default=None)
     parser.add_argument("--conf", type=float, default=None)
-    parser.add_argument("--model-profile", choices=["fast", "accurate", "enhanced"], default=None)
+    parser.add_argument("--model-profile", choices=["fast", "enhanced"], default=None)
     args = parser.parse_args()
 
     result = analyze_video(

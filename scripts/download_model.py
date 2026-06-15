@@ -12,7 +12,6 @@ from ultralytics import YOLO
 
 MODELS = {
     "yolov8n.pt": "yolov8n.pt",
-    "yolov8s.pt": "yolov8s.pt",
     "yolo11m.pt": "yolo11m.pt",
 }
 

@@ -4,7 +4,6 @@ opencv-python
 gradio
 numpy
 pyyaml
-requests
 moviepy
 imageio-ffmpeg
 psutil

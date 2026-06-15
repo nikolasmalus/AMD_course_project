@@ -12,7 +12,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "paths": {
         "model_path": "models/yolov8n.pt",
         "yolo8n_model_path": "models/yolov8n.pt",
-        "yolo8s_model_path": "models/yolov8s.pt",
         "yolo11m_model_path": "models/yolo11m.pt",
         "uploads_dir": "data/uploads",
         "frames_dir": "data/frames",
@@ -25,7 +24,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
         "default_profile": "fast",
         "profiles": {
             "fast": {"label": "快速模式 YOLOv8n", "model_path": "models/yolov8n.pt"},
-            "accurate": {"label": "精准模式 YOLOv8s", "model_path": "models/yolov8s.pt"},
             "enhanced": {"label": "增强模式 YOLO11m", "model_path": "models/yolo11m.pt"},
         },
         "conf_threshold": 0.35,
@@ -40,15 +38,6 @@ DEFAULT_CONFIG: dict[str, Any] = {
             "polygon": [[0.62, 0.35], [0.98, 0.35], [0.98, 0.98], [0.62, 0.98]],
         },
         "loitering": {"enabled": True, "min_duration_seconds": 8.0, "max_movement_ratio": 0.10},
-    },
-    "llm": {
-        "enabled": True,
-        "provider": "ollama",
-        "api_url": "http://127.0.0.1:11434/api/generate",
-        "model_name": "qwen2.5:3b",
-        "timeout_seconds": 20,
-        "allow_external_api": False,
-        "fallback_to_template": True,
     },
 }
 

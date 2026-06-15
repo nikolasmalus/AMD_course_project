@@ -7,7 +7,6 @@ from typing import Any
 import gradio as gr
 
 from src.config import load_config
-from src.hardware_manager import CPU_FALLBACK_MESSAGE
 from src.pipeline import analyze_video
 from src.video_io import read_first_frame
 from src.zone_optimizer import draw_zone_overlay, optimize_polygon, pixel_to_normalized, sanitize_normalized_polygon
@@ -24,15 +23,10 @@ KEY_LABELS = {
     "frame_count": "总帧数",
     "duration_seconds": "视频时长（秒）",
     "actual_device": "实际推理设备",
-    "uses_accelerator": "是否使用加速器",
     "torch_version": "PyTorch 版本",
-    "torch_cuda_available": "PyTorch 加速接口可用",
     "device_name": "设备名称",
-    "backend_note": "后端说明",
     "cpu_count": "CPU 线程数",
     "memory_total_mb": "系统内存（MB）",
-    "npu_available": "NPU 是否可用",
-    "npu_note": "NPU 说明",
     "warning": "提示",
     "video_info": "视频基本信息",
     "hardware_info": "硬件信息",
@@ -47,18 +41,7 @@ KEY_LABELS = {
     "events": "异常事件",
     "risk_level": "风险等级",
     "alert_text": "告警文本",
-    "llm": "本地大模型",
-    "llm_used": "是否使用本地大模型",
-    "llm_provider": "大模型服务",
-    "llm_model": "大模型名称",
-    "llm_fallback_reason": "大模型回退原因",
-    "provider": "服务提供方",
-    "model_name": "模型名称",
-    "local_only": "是否仅本地调用",
-    "fallback_count": "模板兜底次数",
-    "fallback_reasons": "模板兜底原因",
     "benchmark": "性能对比",
-    "npu_adaptation_note": "NPU 适配说明",
     "benchmark_frame_count": "性能测试帧数",
     "event_count": "事件数量",
     "baseline_fp32": "基线 FP32",
@@ -115,13 +98,9 @@ VALUE_LABELS = {
     "baseline_fp32": "基线 FP32",
     "optimized_fp16": "优化 FP16",
     "consistency": "一致率",
-    CPU_FALLBACK_MESSAGE: "仅 CPU 回退模式，不满足最终 AMD GPU 推理要求",
     "FP16 optimization requires GPU": "FP16 优化需要 GPU",
     "No sampled frames available for benchmark.": "没有可用于性能测试的抽样帧。",
     "GPU memory uses torch.cuda.max_memory_allocated when available; CPU memory peak is not measured.": "GPU 显存峰值使用 torch.cuda.max_memory_allocated 统计；CPU 内存峰值未统计。",
-    "NPU is not used in this MVP; future Ryzen AI adaptation can export ONNX and run via Ryzen AI/Vitis AI stack.": "MVP 阶段未实际使用 NPU；后续可导出 ONNX，并通过 Ryzen AI/Vitis AI 工具链适配。",
-    "NPU is recorded as future Ryzen AI ONNX/Vitis AI adaptation; MVP runs YOLO via PyTorch CPU/GPU.": "NPU 在当前版本中作为后续 Ryzen AI ONNX/Vitis AI 适配方向记录；MVP 使用 PyTorch CPU/GPU 运行 YOLO。",
-    "PyTorch CUDA interface; NVIDIA CUDA in current WSL, AMD ROCm/HIP on final AMD workstation": "PyTorch 统一 CUDA 设备接口：当前 WSL 为 NVIDIA CUDA，最终 AMD 工作站为 ROCm/HIP。",
 }
 
 
@@ -148,7 +127,7 @@ def _markdown_dict(title: str, data: dict[str, Any]) -> str:
 
 def _events_table(events: list[dict[str, Any]]) -> list[list[Any]]:
     if not events:
-        return [["-", "未检测到明显异常事件", "-", "-", "-", "-", "-", "未检测到明显异常事件", "否"]]
+        return [["-", "未检测到明显异常事件", "-", "-", "-", "-", "-", "未检测到明显异常事件"]]
     return [
         [
             event.get("event_id"),
@@ -159,7 +138,6 @@ def _events_table(events: list[dict[str, Any]]) -> list[list[Any]]:
             event.get("end_time"),
             event.get("duration"),
             event.get("alert_text"),
-            _format_value(event.get("llm_used")),
         ]
         for event in events
     ]
@@ -269,12 +247,6 @@ def run_ui(
     )
     events = result.get("events", [])
     hardware = result.get("hardware_info", {})
-    llm = result.get("llm", {})
-    warning = ""
-    if hardware.get("actual_device") == "cpu":
-        warning = "\n\n> **仅 CPU 回退模式，不满足最终 AMD GPU 推理要求**"
-    if result.get("model_error"):
-        warning += f"\n\n> 模型提示：{result['model_error']}"
 
     clips = [event["clip_path"] for event in events if Path(event.get("clip_path", "")).exists()]
     thumbs = [event["thumbnail_path"] for event in events if Path(event.get("thumbnail_path", "")).exists()]
@@ -283,12 +255,7 @@ def run_ui(
     return (
         result.get("annotated_video_path") or result["video_path"],
         _markdown_dict("视频基本信息", result.get("video_info", {})),
-        _markdown_dict("硬件信息", hardware)
-        + "\n\n### 本地大模型\n"
-        + f"- **说明**: Ollama {llm.get('model_name', CONFIG['llm'].get('model_name', 'qwen2.5:3b'))}，本地调用，数据不出机。\n"
-        + f"- **是否使用 LLM**: {_format_value(llm.get('llm_used'))}\n"
-        + f"- **模板兜底次数**: {llm.get('fallback_count', 0)}"
-        + warning,
+        _markdown_dict("硬件信息", hardware),
         _events_table(events),
         result.get("risk_level", "无"),
         result.get("alert_text", "未检测到明显异常事件"),
@@ -327,7 +294,7 @@ with gr.Blocks(title=CONFIG["app"]["title"]) as demo:
             original_video = gr.Video(label="分析视频")
             video_info = gr.Markdown()
             hardware_info = gr.Markdown()
-    events_table = gr.Dataframe(headers=["事件编号", "事件类型", "风险等级", "轨迹编号", "开始秒", "结束秒", "持续时长（秒）", "告警文本", "是否使用 LLM"], label="异常事件详情")
+    events_table = gr.Dataframe(headers=["事件编号", "事件类型", "风险等级", "轨迹编号", "开始秒", "结束秒", "持续时长（秒）", "告警文本"], label="异常事件详情")
     with gr.Row():
         risk = gr.Textbox(label="风险等级")
         alert = gr.Textbox(label="中文告警说明", lines=3)

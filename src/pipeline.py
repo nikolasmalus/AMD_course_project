@@ -147,13 +147,10 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
         return context
 
     def generate_alert_tool(context: dict[str, Any]) -> dict[str, Any]:
-        generator = AlertGenerator(config["llm"])
+        generator = AlertGenerator()
         events = generator.generate_for_events(context.get("events", []))
         context["events"] = events
-        context["llm"] = generator.summarize_llm(events)
         context["alert_text"] = summarize_alert_text(events)
-        context["llm_used"] = context["llm"]["llm_used"]
-        context["llm_fallback_reason"] = "; ".join(context["llm"]["fallback_reasons"]) if context["llm"]["fallback_reasons"] else None
         context["risk_level"] = risk_level(context.get("events", []))
         return context
 
@@ -183,14 +180,8 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
             "events": context.get("events", []),
             "risk_level": context.get("risk_level"),
             "alert_text": context.get("alert_text"),
-            "llm": context.get("llm"),
-            "llm_used": context.get("llm_used"),
-            "llm_fallback_reason": context.get("llm_fallback_reason"),
             "benchmark": benchmark,
-            "npu_adaptation_note": "NPU is recorded as future Ryzen AI ONNX/Vitis AI adaptation; MVP runs YOLO via PyTorch CPU/GPU.",
         }
-        if context["hardware_info"].get("warning"):
-            result["warning"] = context["hardware_info"]["warning"]
         context["result_json_path"] = _write_json(Path(context["results_dir"]) / "result.json", result)
         context["benchmark_json_path"] = _write_json(Path(context["results_dir"]) / "benchmark_report.json", benchmark)
         context["result"] = result
