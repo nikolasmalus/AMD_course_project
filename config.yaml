@@ -38,6 +38,8 @@ tracking:
 events:
   restricted_zone:
     enabled: true
+    # Lower value means the box turns red as soon as a small part enters the zone.
+    min_bbox_points_inside_ratio: 0.10
     # Normalized polygon points: [x, y], 0-1 relative to frame width/height.
     polygon:
       - [0.62, 0.35]

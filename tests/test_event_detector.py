@@ -28,6 +28,27 @@ def test_detects_restricted_zone_intrusion():
     assert events[0]["type"] == "restricted_zone_intrusion"
 
 
+def test_restricted_zone_triggers_when_bbox_edge_enters_zone():
+    detector = EventDetector(
+        frame_width=100,
+        frame_height=100,
+        restricted_polygon=[[0.5, 0.5], [1.0, 0.5], [1.0, 1.0], [0.5, 1.0]],
+        restricted_min_bbox_points_ratio=0.10,
+        loitering_enabled=False,
+    )
+    tracks = [
+        {
+            "track_id": 1,
+            "history": [
+                {"timestamp": 1.0, "bbox": [40, 40, 52, 52], "center": [46, 46]},
+            ],
+        }
+    ]
+    events = detector.detect(tracks)
+    assert len(events) == 1
+    assert events[0]["event_id"] == "restricted_zone_event_1"
+
+
 def test_detects_loitering():
     detector = EventDetector(
         frame_width=100,

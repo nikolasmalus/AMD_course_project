@@ -6,7 +6,7 @@ from typing import Any
 import cv2
 import numpy as np
 
-from .event_detector import point_in_polygon
+from .event_detector import bbox_overlaps_polygon
 from .media_compat import transcode_to_browser_mp4
 
 
@@ -84,16 +84,12 @@ def _interpolate_bbox(history: list[dict[str, Any]], timestamp: float, hold_seco
     return None
 
 
-def _bbox_center(bbox: list[float]) -> list[float]:
-    x1, y1, x2, y2 = bbox
-    return [(x1 + x2) / 2.0, (y1 + y2) / 2.0]
-
-
 def render_annotated_video(
     video_path: str | Path,
     tracked_frames: list[dict[str, Any]],
     restricted_polygon: list[list[float]] | None,
     output_path: str | Path,
+    restricted_min_bbox_points_ratio: float = 0.10,
 ) -> str:
     cap = cv2.VideoCapture(str(video_path))
     if not cap.isOpened():
@@ -136,8 +132,7 @@ def render_annotated_video(
             if interpolated is None:
                 continue
             bbox, confidence = interpolated
-            center = _bbox_center(bbox)
-            in_zone = bool(scaled_polygon) and point_in_polygon(center, scaled_polygon)
+            in_zone = bool(scaled_polygon) and bbox_overlaps_polygon(bbox, scaled_polygon, restricted_min_bbox_points_ratio)
             color = (0, 0, 255) if in_zone else (0, 180, 0)
             x1, y1, x2, y2 = [int(value) for value in bbox]
             cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)

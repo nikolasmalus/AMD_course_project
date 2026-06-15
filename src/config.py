@@ -35,6 +35,7 @@ DEFAULT_CONFIG: dict[str, Any] = {
     "events": {
         "restricted_zone": {
             "enabled": True,
+            "min_bbox_points_inside_ratio": 0.10,
             "polygon": [[0.62, 0.35], [0.98, 0.35], [0.98, 0.98], [0.62, 0.98]],
         },
         "loitering": {"enabled": True, "min_duration_seconds": 8.0, "max_movement_ratio": 0.10},

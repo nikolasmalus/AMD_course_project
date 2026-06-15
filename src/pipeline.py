@@ -119,6 +119,7 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
             frame_height=int(video_info["height"]),
             restricted_polygon=restricted_polygon,
             restricted_enabled=bool(restricted.get("enabled", True)),
+            restricted_min_bbox_points_ratio=float(restricted.get("min_bbox_points_inside_ratio", 0.10)),
             loitering_enabled=bool(loitering.get("enabled", True)),
             loitering_min_duration=float(context.get("loitering_min_duration", loitering["min_duration_seconds"])),
             loitering_max_movement_ratio=float(context.get("loitering_max_movement", loitering["max_movement_ratio"])),
@@ -142,6 +143,7 @@ def build_agent(config: dict[str, Any]) -> VideoSecurityAgent:
             video_path=context["video_path"],
             tracked_frames=context.get("tracked_frames", []),
             restricted_polygon=context.get("restricted_polygon"),
+            restricted_min_bbox_points_ratio=float(config["events"]["restricted_zone"].get("min_bbox_points_inside_ratio", 0.10)),
             output_path=annotated_path,
         )
         return context
